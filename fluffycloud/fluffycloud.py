@@ -56,6 +56,7 @@ class FluffyCloud(clouds.Cloud):
                               accelerators: Optional[Dict[str, int]],
                               use_spot: bool, region: Optional[str],
                               zone: Optional[str]) -> List[clouds.Region]:
+        assert zone is None, 'FluffyCloud does not support zones.'
         del accelerators, zone  # unused
         if use_spot:
             return []
@@ -71,20 +72,24 @@ class FluffyCloud(clouds.Cloud):
         return regions
 
     @classmethod
-    def region_zones_provision_loop(
+    def zones_provision_loop(
         cls,
         *,
+        region: str,
+        num_nodes: int,
         instance_type: Optional[str] = None,
         accelerators: Optional[Dict[str, int]] = None,
         use_spot: bool = False,
-    ) -> Iterator[Tuple[clouds.Region, List[clouds.Zone]]]:
+    ) -> Iterator[None]:
+        del num_nodes  # unused
         regions = cls.regions_with_offering(instance_type,
                                             accelerators,
                                             use_spot,
-                                            region=None,
+                                            region=region,
                                             zone=None)
-        for region in regions:
-            yield region, region.zones
+        for r in regions:
+            assert r.zones is None, r
+            yield r.zones
 
     def instance_type_to_hourly_cost(self,
                                      instance_type: str,
@@ -194,6 +199,7 @@ class FluffyCloud(clouds.Cloud):
                     # Set to None if don't separately bill / attach
                     # accelerators.
                     accelerators=None,
+                    cpus=None,
                 )
                 resource_list.append(r)
             return resource_list

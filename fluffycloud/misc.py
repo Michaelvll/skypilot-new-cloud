@@ -11,7 +11,7 @@ FluffyCloud = clouds.FluffyCloud
 __all__ = [
     ...
     # TODO Add this
-    FluffyCloud
+    'FluffyCloud'
     ...
 ]
 

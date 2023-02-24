@@ -1,8 +1,9 @@
 # Location: `sky/backends/cloud_vm_ray_backend.py`
 ...
  def _update_blocklist_on_fluffycloud_error(
-            self, launchable_resources: 'resources_lib.Resources', region,
-            zones, stdout, stderr):
+            self, launchable_resources: 'resources_lib.Resources',
+            region: 'clouds.Region', zones: Optional[List['clouds.Zone']],
+            stdout: str, stderr: str):
         del zones  # Unused.
         style = colorama.Style
         stdout_splits = stdout.split('\n')
@@ -33,20 +34,8 @@ def _update_blocklist_on_error(
     handlers = {
         ...
         # TODO Add this
-        clouds.fluffycloud: self._update_blocklist_on_fluffycloud_error,
+        clouds.FluffyCloud: self._update_blocklist_on_fluffycloud_error,
         ...
     }
-    ...
-...
-def _yield_region_zones(self, to_provision: resources_lib.Resources,
-                        cluster_name: str, cluster_exists: bool):
-    ...
-            elif cloud.is_same_cloud(clouds.Azure()):
-                                region = config['provider']['location']
-                                zones = None
-            # TODO Add this
-            elif cloud.is_same_cloud(clouds.FluffyCloud()):
-                                region = config['provider']['location']
-                                zones = None
     ...
 ...
