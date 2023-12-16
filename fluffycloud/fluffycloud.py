@@ -1,3 +1,5 @@
+""" FluffyCloud Cloud. """
+
 import json
 import typing
 from typing import Dict, Iterator, List, Optional, Tuple
@@ -6,28 +8,34 @@ from sky import clouds
 from sky.clouds import service_catalog
 
 if typing.TYPE_CHECKING:
-    # Renaming to avoid shadowing variables.
     from sky import resources as resources_lib
 
 _CREDENTIAL_FILES = [
     # credential files for FluffyCloud,
+    # TODO: Change this to the actual credential files
+    'config.toml',
 ]
 
 
 @clouds.CLOUD_REGISTRY.register
 class FluffyCloud(clouds.Cloud):
-
+    """FluffyCloud GPU Cloud"""
     _REPR = 'FluffyCloud'
     _CLOUD_UNSUPPORTED_FEATURES = {
-        clouds.CloudImplementationFeatures.STOP: 'FluffyCloud does not support stopping VMs.',
-        clouds.CloudImplementationFeatures.AUTOSTOP: 'FluffyCloud does not support stopping VMs.',
-        clouds.CloudImplementationFeatures.MULTI_NODE: 'Multi-node is not supported by the FluffyCloud implementation yet.',
-    ########
-    # TODO #
-    ########
-    _MAX_CLUSTER_NAME_LEN_LIMIT = # TODO
-
+        clouds.CloudImplementationFeatures.AUTOSTOP: 'Stopping not supported.',
+        clouds.CloudImplementationFeatures.STOP: 'Stopping not supported.',
+        clouds.CloudImplementationFeatures.SPOT_INSTANCE:
+            ('Spot is not supported, as fluffycloud API does not implement spot .'),
+        clouds.CloudImplementationFeatures.MULTI_NODE:
+            ('Multi-node not supported yet, as the interconnection among nodes '
+             'are non-trivial on FluffyCloud.'),
+    }
+    _MAX_CLUSTER_NAME_LEN_LIMIT = 120
     _regions: List[clouds.Region] = []
+
+    # Using the latest SkyPilot provisioner API to provision and check status.
+    PROVISIONER_VERSION = clouds.ProvisionerVersion.SKYPILOT
+    STATUS_VERSION = clouds.StatusVersion.SKYPILOT
 
     @classmethod
     def _cloud_unsupported_features(
@@ -38,21 +46,8 @@ class FluffyCloud(clouds.Cloud):
     def _max_cluster_name_length(cls) -> Optional[int]:
         return cls._MAX_CLUSTER_NAME_LEN_LIMIT
 
-
     @classmethod
-    def regions(cls) -> List[clouds.Region]:
-        if not cls._regions:
-            ########
-            # TODO #
-            ########
-            # Add the region from catalog entry
-            cls._regions = [
-                clouds.Region(...),
-            ]
-        return cls._regions
-
-    @classmethod
-    def regions_with_offering(cls, instance_type: Optional[str],
+    def regions_with_offering(cls, instance_type: str,
                               accelerators: Optional[Dict[str, int]],
                               use_spot: bool, region: Optional[str],
                               zone: Optional[str]) -> List[clouds.Region]:
@@ -60,9 +55,6 @@ class FluffyCloud(clouds.Cloud):
         del accelerators, zone  # unused
         if use_spot:
             return []
-        if instance_type is None:
-            # Fall back to default regions
-            regions = cls.regions()
         else:
             regions = service_catalog.get_region_zones_for_instance_type(
                 instance_type, use_spot, 'fluffycloud')
@@ -72,12 +64,20 @@ class FluffyCloud(clouds.Cloud):
         return regions
 
     @classmethod
+    def get_vcpus_mem_from_instance_type(
+        cls,
+        instance_type: str,
+    ) -> Tuple[Optional[float], Optional[float]]:
+        return service_catalog.get_vcpus_mem_from_instance_type(instance_type,
+                                                                clouds='fluffycloud')
+
+    @classmethod
     def zones_provision_loop(
         cls,
         *,
         region: str,
         num_nodes: int,
-        instance_type: Optional[str] = None,
+        instance_type: str,
         accelerators: Optional[Dict[str, int]] = None,
         use_spot: bool = False,
     ) -> Iterator[None]:
@@ -107,6 +107,7 @@ class FluffyCloud(clouds.Cloud):
                                     use_spot: bool,
                                     region: Optional[str] = None,
                                     zone: Optional[str] = None) -> float:
+        """Returns the hourly cost of the accelerators, in dollars/hour."""
         del accelerators, use_spot, region, zone  # unused
         ########
         # TODO #
@@ -132,26 +133,22 @@ class FluffyCloud(clouds.Cloud):
         return isinstance(other, FluffyCloud)
 
     @classmethod
-    def get_default_instance_type(cls,
-                                  cpus: Optional[str] = None) -> Optional[str]:
+    def get_default_instance_type(
+            cls,
+            cpus: Optional[str] = None,
+            memory: Optional[str] = None,
+            disk_tier: Optional[str] = None) -> Optional[str]:
+        """Returns the default instance type for FluffyCloud."""
         return service_catalog.get_default_instance_type(cpus=cpus,
+                                                         memory=memory,
+                                                         disk_tier=disk_tier,
                                                          clouds='fluffycloud')
 
     @classmethod
     def get_accelerators_from_instance_type(
-        cls,
-        instance_type: str,
-    ) -> Optional[Dict[str, int]]:
+            cls, instance_type: str) -> Optional[Dict[str, int]]:
         return service_catalog.get_accelerators_from_instance_type(
             instance_type, clouds='fluffycloud')
-
-    @classmethod
-    def get_vcpus_from_instance_type(
-        cls,
-        instance_type: str,
-    ) -> Optional[float]:
-        return service_catalog.get_vcpus_from_instance_type(instance_type,
-                                                            clouds='fluffycloud')
 
     @classmethod
     def get_zone_shell_cmd(cls) -> Optional[str]:
@@ -159,11 +156,9 @@ class FluffyCloud(clouds.Cloud):
 
     def make_deploy_resources_variables(
             self, resources: 'resources_lib.Resources',
-            region: Optional['clouds.Region'],
+            cluster_name_on_cloud: str, region: 'clouds.Region',
             zones: Optional[List['clouds.Zone']]) -> Dict[str, Optional[str]]:
         del zones
-        if region is None:
-            region = self._get_default_region()
 
         r = resources
         acc_dict = self.get_accelerators_from_instance_type(r.instance_type)
@@ -178,8 +173,9 @@ class FluffyCloud(clouds.Cloud):
             'region': region.name,
         }
 
-    def get_feasible_launchable_resources(self,
-                                          resources: 'resources_lib.Resources'):
+    def _get_feasible_launchable_resources(
+            self, resources: 'resources_lib.Resources'):
+        """Returns a list of feasible resources for the given resources."""
         if resources.use_spot:
             return ([], [])
         if resources.instance_type is not None:
@@ -230,11 +226,36 @@ class FluffyCloud(clouds.Cloud):
             return ([], fuzzy_candidate_list)
         return (_make(instance_list), fuzzy_candidate_list)
 
-    def check_credentials(self) -> Tuple[bool, Optional[str]]:
+    @classmethod
+    def check_credentials(cls) -> Tuple[bool, Optional[str]]:
+        """ Verify that the user has valid credentials for FluffyCloud. """
         ########
         # TODO #
         ########
         # Verify locally stored credentials are correct.
+        # The following is an example, where we assume `fluffycloud` is the
+        # Python SDK for FluffyCloud.
+
+        try:
+            import fluffycloud  # pylint: disable=import-outside-toplevel
+            valid, error = fluffycloud.check_credentials()
+
+            if not valid:
+                return False, (
+                    f'{error} \n'  # First line is indented by 4 spaces
+                    '    Credentials can be set up by running: \n'
+                    f'        $ pip install fluffycloud \n'
+                    f'        $ fluffycloud store_api_key <YOUR_fluffycloud_API_KEY> \n'
+                    '    For more information, see https://docs.fluffycloud.io/docs/skypilot'  # pylint: disable=line-too-long
+                )
+
+            return True, None
+
+        except ImportError:
+            return False, (
+                'Failed to import fluffycloud.'
+                'To install, run: "pip install fluffycloud" or "pip install sky[fluffycloud]"'  # pylint: disable=line-too-long
+            )
 
     def get_credential_file_mounts(self) -> Dict[str, str]:
         ########
@@ -242,12 +263,13 @@ class FluffyCloud(clouds.Cloud):
         ########
         # Return dictionary of credential file paths. This may look
         # something like:
-        # return {
-        #     f'~/.fluffycloud/{filename}': f'~/.fluffycloud/{filename}'
-        #     for filename in _CREDENTIAL_FILES
-        # }
+        return {
+            f'~/.fluffycloud/{filename}': f'~/.fluffycloud/{filename}'
+            for filename in _CREDENTIAL_FILES
+        }
 
-    def get_current_user_identity(self) -> Optional[str]:
+    @classmethod
+    def get_current_user_identity(cls) -> Optional[List[str]]:
         # NOTE: used for very advanced SkyPilot functionality
         # Can implement later if desired
         return None
